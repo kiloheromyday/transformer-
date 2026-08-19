@@ -1,0 +1,29 @@
+核心代码能运行，check() 也通过，但作为 GitHub 交付项目还有不少风险。
+高优先级
+- GitHub 交付缺少说明文件和依赖文件。当前 tracked 文件只有 .gitignore、transformer2.py、CSV 和 3 张图；没有 README.md、requirements.txt 或运行说明。别人克隆后不知道要装 torch 和 matplotlib，而代码确实依赖它们：[transformer2.py (line 19)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:19)、[transformer2.py (line 488)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:488)。
+- 结果图不是由当前最终版本重新生成的。transformer2.py 修改时间是 2026-08-19 17:33:31，但三张结果图是 17:04 左右生成的。虽然改名/短命名理论上不改行为，但如果老师或别人要求“当前代码复现实验图”，这里会被问到。
+- 没有保存模型权重。trainit() 训练完只打印结果和保存图：[transformer2.py (line 598)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:598)、[transformer2.py (line 653)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:653)。如果要复现实验后的预测结果，只能重新训练，不能加载最佳模型。
+中优先级
+- 曲线和混淆矩阵使用的模型状态不完全一致。训练曲线记录所有 epoch：[transformer2.py (line 633)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:633)，随后恢复最佳 epoch 参数：[transformer2.py (line 642)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:642)，再画混淆矩阵和 attention 图。也就是说曲线展示 15 轮过程，矩阵展示 best epoch 模型，文档里最好说明清楚。
+- 空 batch 会直接报错：[transformer2.py (line 257)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:257) 到 [transformer2.py (line 511)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:511)。我实测 make_batch([]...) 抛出 ValueError: max() iterable argument is empty。
+- 空验证集会除 0：[transformer2.py (line 445)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:445)。我实测 acc([], ...) 抛出 ZeroDivisionError。正常 UCI 划分不会触发，但公共函数不健壮。
+- 全 padding 输入不会 NaN，但会输出全 0 logits：[transformer2.py (line 421)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:421) 到 [transformer2.py (line 422)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:422)。我实测没有 NaN，不过全空输入被当成三类同分，这个语义比较模糊。
+- 验证集中有少量未知 token。词表只用训练集构建，这是严格做法，但我实测验证集 31896 个 token 中有 7 个变成 __unk__，包括 nacionality_32、father_s_occupation_161 等。影响很小，但报告里可以提一句。
+- 自动下载数据没有校验文件完整性或版本：[transformer2.py (line 31)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:31)、[transformer2.py (line 117)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:117)。现在仓库提交了 CSV，所以问题不大；如果以后删掉 CSV，只靠下载就缺少 hash 校验。
+- 函数和变量名过短，学习痕迹强，但可维护性下降。例如 go、p、c、x、y1、besta 这类名字在 [transformer2.py (line 409)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:409) 和 [transformer2.py (line 598)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:598) 附近很多。符合你想要的初学者风格，但别人阅读会更依赖上下文。
+低优先级
+- 主入口只能手动改 mode，没有命令行参数：[transformer2.py (line 747)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:747) 到 [transformer2.py (line 761)](C:/Users/lenovo/Documents/transformer-learning-project/transformer2.py:761)。别人想跑 check 或 demo 需要编辑源码。
+- 训练默认只用 CPU：DEV="cpu"，如果机器有 GPU，不会自动使用。作为学习项目可以接受。
+- .gitignore 生效了，__pycache__ 和 .idea 没被提交；这一点是好的。当前 git status --short 干净。
+已验证没问题
+- python -m py_compile transformer2.py 通过。
+- transformer2.check() 通过。
+- 训练/验证没有完全重复行；我实测交集为 0。
+- 训练/验证类别数量正常：训练集 1136 / 635 / 1767，验证集 285 / 159 / 442。
+- 全 padding 输入没有产生 NaN。
+测试缺口
+- 没有测试 GitHub clone 后一键安装依赖并运行。
+- 没有测试删除本地 CSV 后自动下载是否成功。
+- 没有测试空 batch、空验证集、字段缺失、CSV 列名变化。
+- 没有测试当前 transformer2.py 重新跑 15 轮后是否能生成和现有图片一致的结果。
+- 没有测试保存/加载最佳模型，因为目前还没有 checkpoint 功能。
