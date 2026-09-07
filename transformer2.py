@@ -48,13 +48,15 @@ AG_NEWS_URLS = {
     ],
 }
 
+## AG News 是一个经典的英文新闻分类数据集，给一条新闻标题/摘要，判断它属于 4 个类别之一
 LABEL_NAMES = ["World", "Sports", "Business", "Sci/Tech"]
 NUM_CLASSES = len(LABEL_NAMES)
 
-PAD_TOKEN = "[PAD]"
-UNK_TOKEN = "[UNK]"
-CLS_TOKEN = "[CLS]"
-SEP_TOKEN = "[SEP]"
+## 在定义分词器/词表里要用的特殊符号，再配一个正则表达式分词规则
+PAD_TOKEN = "[PAD]" # 补齐长度用
+UNK_TOKEN = "[UNK]" # 词表里没有的词
+CLS_TOKEN = "[CLS]" # 分类任务常放在开头的标记
+SEP_TOKEN = "[SEP]" # 句子/片段分隔标记
 SPECIAL_TOKENS = [PAD_TOKEN, UNK_TOKEN, CLS_TOKEN, SEP_TOKEN]
 TOKEN_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?|\d+")
 
@@ -71,6 +73,7 @@ def pretty(value: float) -> str:
     return f"{value:.4f}"
 
 
+## 设备这一块
 def make_device(name: Optional[str] = None) -> torch.device:
     if name:
         return torch.device(name)
@@ -87,6 +90,8 @@ def enable_speed_flags(device: torch.device) -> None:
         torch.backends.cudnn.benchmark = True
 
 
+
+## 下面都是数据集处理这一块，没什么要讲的，按着数据集解释说明抄的
 def download_file(urls: Sequence[str], path: Path) -> Path:
     if path.exists() and path.stat().st_size > 0:
         return path
@@ -120,7 +125,7 @@ def download_file(urls: Sequence[str], path: Path) -> Path:
                 if temp_path.exists():
                     temp_path.replace(path)
                     return path
-
+            ## codex帮助我验证的client
             req = urllib.request.Request(url, headers={"User-Agent": "Codex"})
             with opener.open(req, timeout=120) as response, temp_path.open("wb") as handle:
                 while True:
@@ -164,6 +169,7 @@ def tokenize(text: str) -> List[str]:
     return TOKEN_RE.findall(str(text).lower())
 
 
+## 分层
 def stratified_split(
     frame: pd.DataFrame,
     label_col: str = "label",
@@ -186,12 +192,14 @@ def stratified_split(
     return train_df, val_df
 
 
+## 抽样
 def sample_frame(frame: pd.DataFrame, max_rows: Optional[int], seed: int) -> pd.DataFrame:
     if max_rows is None or max_rows <= 0 or max_rows >= len(frame):
         return frame.reset_index(drop=True)
     return frame.sample(n=max_rows, random_state=seed).reset_index(drop=True)
 
 
+## 封装词表这个概念
 class TextVocab:
     def __init__(self, max_size: int = 50000, min_freq: int = 2):
         self.max_size = max_size
@@ -229,6 +237,7 @@ class TextVocab:
             self.add_token(token)
         return self
 
+    ## 把一句文本变成固定长度的数字序列：分词；加 [CLS] 和 [SEP]；查词表转id；不认识的词用 [UNK]；不够长的用 [PAD] 补齐
     def encode(self, text: str, max_len: int) -> List[int]:
         tokens = tokenize(text)
         if max_len >= 2:
@@ -241,12 +250,14 @@ class TextVocab:
         return ids[:max_len]
 
 
+## 表格数据变成pytorch训练时可以直接喂给模型的batch数据
 def encode_frame(frame: pd.DataFrame, vocab: TextVocab, max_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
     input_ids = [vocab.encode(text, max_len) for text in frame["text"].tolist()]
     labels = frame["label"].to_numpy(dtype=np.int64)
     return torch.tensor(input_ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long)
 
 
+## 把训练集、验证集、测试集都包装成 DataLoader
 def build_loaders(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -265,6 +276,7 @@ def build_loaders(
     return train_loader, val_loader, test_loader
 
 
+## 文本 -> 词向量 + 位置向量 -> Transformer 编码 -> 分类
 class TextTransformerClassifier(nn.Module):
     def __init__(
         self,
@@ -305,6 +317,7 @@ class TextTransformerClassifier(nn.Module):
         return self.head(x[:, 0])
 
 
+## 文本 -> 词向量 -> 平均池化 -> 分类
 class MeanPoolClassifier(nn.Module):
     def __init__(
         self,
@@ -336,33 +349,36 @@ class MeanPoolClassifier(nn.Module):
 
 @dataclass
 class ExperimentConfig:
-    name: str
-    kind: str
-    epochs: int
-    batch_size: int
-    lr: float
-    weight_decay: float
-    patience: int
-    warmup_ratio: float
-    min_lr_ratio: float
-    label_smoothing: float
-    d_model: int
-    nhead: int = 4
-    num_layers: int = 2
-    ff_dim: int = 512
-    hidden: int = 256
-    dropout: float = 0.2
+    name: str              # 实验名称
+    kind: str              # 模型类型，例如 transformer / meanpool
+    epochs: int            # 训练轮数
+    batch_size: int        # 每个 batch 的样本数
+    lr: float              # 学习率
+    weight_decay: float    # 权重衰减，用于防止过拟合
+    patience: int          # 早停等待轮数
+    warmup_ratio: float    # 学习率 warmup 占比
+    min_lr_ratio: float    # 最小学习率比例
+    label_smoothing: float # 标签平滑系数
+    d_model: int           # 模型隐藏维度 / 词向量维度
+    nhead: int = 4         # Transformer 注意力头数，默认 4
+    num_layers: int = 2    # Transformer 编码层数，默认 2
+    ff_dim: int = 512      # 前馈网络中间维度
+    hidden: int = 256      # 分类器隐藏层维度
+    dropout: float = 0.2   # dropout 比例
 
 
+## 损失函数
 def classification_loss(logits: torch.Tensor, targets: torch.Tensor, smoothing: float = 0.0) -> torch.Tensor:
-    if smoothing <= 0:
+    if smoothing <= 0: # 如果 smoothing <= 0，就直接用普通交叉熵
         return F.cross_entropy(logits, targets)
+    # 标签平滑：让模型别对某个类别过于自信
     log_probs = F.log_softmax(logits, dim=-1)
     nll = -log_probs.gather(dim=-1, index=targets.unsqueeze(1)).squeeze(1)
     smooth = -log_probs.mean(dim=-1)
     return ((1.0 - smoothing) * nll + smoothing * smooth).mean()
 
 
+## 模型工厂函数：根据 spec.kind 决定造哪种模型。
 def build_model(spec: ExperimentConfig, vocab: TextVocab, max_len: int, num_classes: int) -> nn.Module:
     if spec.kind == "transformer":
         return TextTransformerClassifier(
@@ -388,6 +404,7 @@ def build_model(spec: ExperimentConfig, vocab: TextVocab, max_len: int, num_clas
     raise ValueError(f"unknown model kind: {spec.kind}")
 
 
+## 学习率调度器，控制训练过程中学习率怎么变
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
     total_steps: int,
@@ -398,10 +415,12 @@ def build_scheduler(
     warmup_steps = max(1, min(warmup_steps, total_steps))
 
     def lr_lambda(step: int) -> float:
+        # 前期 warmup，一开始学习率从小慢慢升上来
         if step < warmup_steps:
             return float(step + 1) / float(warmup_steps)
         if total_steps <= warmup_steps:
             return 1.0
+        # 后期 cosine decay，学习率按余弦曲线慢慢下降，最低不会降到 0，而是降到 min_lr_ratio 对应的比例
         progress = (step - warmup_steps) / float(max(total_steps - warmup_steps, 1))
         progress = min(max(progress, 0.0), 1.0)
         cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
@@ -477,6 +496,7 @@ def train_one_epoch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
 
+        ## 每个 batch 后更新一次学习率
         scheduler.step()
 
         batch_size = labels.size(0)
@@ -622,6 +642,7 @@ def train_model(
     return model, history, test_stats
 
 
+## 开始画画了，ai写的
 def plot_history(history: Dict[str, List[float]], title: str, out_file: Path) -> None:
     epochs = history["epoch"]
     fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.4), dpi=160)
@@ -684,6 +705,8 @@ def plot_confusion_matrix(confusion: np.ndarray, out_file: Path, title: str) -> 
     plt.close(fig)
 
 
+
+### 下面的不用看了，让ai帮我写的个简单全面的报告
 def format_report(name: str, stats: Dict[str, object]) -> str:
     lines = [f"{name}"]
     lines.append(f"  test loss: {pretty(float(stats['loss']))}")
